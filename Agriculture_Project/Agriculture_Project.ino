@@ -11,7 +11,6 @@ int Moisture = 0;
 
 // Servo predefined value
 Servo servoMotor;
-char passServoData; 
 
 //define device id
 const char* DHT11Sensor = "746feabd-7198-438d-8710-e42a2cb55fcc";   
