@@ -11,10 +11,7 @@ int Moisture = 0;
 
 // Servo predefined value
 Servo servoMotor;
-
-// Define start and end angles for synchronized motion 
-const int startAngle = 0; 
-const int endAngle = 90; 
+char passServoData; 
 
 //define device id
 const char* DHT11Sensor = "746feabd-7198-438d-8710-e42a2cb55fcc";   
@@ -55,12 +52,6 @@ void publishActuatorState(const char* deviceId, bool state) {
     String commandStr = "{\"state\":" + String(state ? "true" : "false") + "}";
     voneClient.publishActuatorStatusEvent(deviceId, commandStr.c_str(), state);
 }
-
-// Helper function for servo state
-// void publishServoState(int angle) {
-//     String commandStr = "{\"angle\":" + String(angle) + "}";
-//     voneClient.publishActuatorStatusEvent(Servo, commandStr.c_str(), state);
-// }
 
 void setup_wifi() {
     delay(10);
@@ -134,6 +125,7 @@ void triggerActuator_callback(const char* actuatorDeviceId, const char* actuator
 void setup() {
     // Initialize serial communication with a higher baud rate
     Serial.begin(115200);
+    Serial.setTimeout(1);
     
     // Setup for V-One connection
     setup_wifi();
@@ -175,6 +167,22 @@ void loop() {
   
   voneClient.loop();
 
+  // Handle Python's servo control commands
+  if (Serial.available() > 0) {
+      int angle = Serial.read();  // Read the incoming byte
+      angle = constrain(angle, 0, 90);
+      
+      // Move servo
+      servoMotor.write(angle);
+      
+      // Publish servo state to MQTT
+      String commandStr = "{\"Servo\":" + String(angle) + "}";
+      voneClient.publishActuatorStatusEvent(Servo, commandStr.c_str(), true);
+      
+      // Send confirmation back to Python
+      Serial.println(angle);
+  }
+
   unsigned long cur = millis();
   if (cur - lastMsgTime > 2000) { // Using 2000ms interval
       lastMsgTime = cur;
@@ -199,50 +207,60 @@ void loop() {
       voneClient.publishTelemetryData(MoistureSensor, "Soil moisture", Moisture);
 
       if ((raining == 0) && (Moisture < 20) && (t > 15 && t < 35) && (h < 80)) {
-          // Update states
-          redLEDState = true;
-          greenLEDState = false;
-          relayPumpState = true;
+          // Update LED states
+          bool newRedLEDState = true;
+          bool newGreenLEDState = false;
+          bool newRelayPumpState = true;
 
-          // Set physical pins
-          digitalWrite(redLedPin, redLEDState);
-          digitalWrite(greenLedPin, greenLEDState);
-          digitalWrite(relayPin, relayPumpState);
+          // Only update and publish if states have changed
+          if (redLEDState != newRedLEDState) {
+              redLEDState = newRedLEDState;
+              digitalWrite(redLedPin, redLEDState);
+              String commandStr = "{\"LED1\":" + String(redLEDState ? "true" : "false") + "}";
+              voneClient.publishActuatorStatusEvent(RedLED, commandStr.c_str(), true);
+          }
 
-          // Publish Actuators Telemary Data 
-          publishActuatorState(RedLED, redLEDState);
-          publishActuatorState(GreenLED, greenLEDState);
-          publishActuatorState(RelayWaterPump, relayPumpState);
+          if (greenLEDState != newGreenLEDState) {
+              greenLEDState = newGreenLEDState;
+              digitalWrite(greenLedPin, greenLEDState);
+              String commandStr = "{\"LED2\":" + String(greenLEDState ? "true" : "false") + "}";
+              voneClient.publishActuatorStatusEvent(GreenLED, commandStr.c_str(), true);
+          }
+
+          if (relayPumpState != newRelayPumpState) {
+              relayPumpState = newRelayPumpState;
+              digitalWrite(relayPin, relayPumpState);
+              String commandStr = "{\"Relay\":" + String(relayPumpState ? "true" : "false") + "}";
+              voneClient.publishActuatorStatusEvent(RelayWaterPump, commandStr.c_str(), true);
+          }
           
       } else {
-          // Update states
-          redLEDState = false;
-          greenLEDState = true;
-          relayPumpState = false;
+          // Update LED states for normal conditions
+          bool newRedLEDState = false;
+          bool newGreenLEDState = true;
+          bool newRelayPumpState = false;
 
-          // Set physical pins
-          digitalWrite(redLedPin, redLEDState);
-          digitalWrite(greenLedPin, greenLEDState);
-          digitalWrite(relayPin, relayPumpState);
+          // Only update and publish if states have changed
+          if (redLEDState != newRedLEDState) {
+              redLEDState = newRedLEDState;
+              digitalWrite(redLedPin, redLEDState);
+              String commandStr = "{\"LED1\":" + String(redLEDState ? "true" : "false") + "}";
+              voneClient.publishActuatorStatusEvent(RedLED, commandStr.c_str(), true);
+          }
 
-          // Publish Actuators Telemary Data 
-          publishActuatorState(RedLED, redLEDState);
-          publishActuatorState(GreenLED, greenLEDState);
-          publishActuatorState(RelayWaterPump, relayPumpState);
-      }
+          if (greenLEDState != newGreenLEDState) {
+              greenLEDState = newGreenLEDState;
+              digitalWrite(greenLedPin, greenLEDState);
+              String commandStr = "{\"LED2\":" + String(greenLEDState ? "true" : "false") + "}";
+              voneClient.publishActuatorStatusEvent(GreenLED, commandStr.c_str(), true);
+          }
 
-      // Condition to check the python code to ensure that it can call it from python
-      if (Serial.available() > 0) {
-        String status = Serial.readStringUntil('\n');  // Read status from Python
-        
-        // Process the received status and control the servo
-        if (status == "Healthy") {
-          servoMotor.write(0);  // Position servo to 0 degrees
-        } else if (status == "Powdery" || status == "Rust") {
-          servoMotor.write(90);  // Position servo to 90 degrees
-        }
-        
-        delay(500);  // Small delay for stability
+          if (relayPumpState != newRelayPumpState) {
+              relayPumpState = newRelayPumpState;
+              digitalWrite(relayPin, relayPumpState);
+              String commandStr = "{\"Relay\":" + String(relayPumpState ? "true" : "false") + "}";
+              voneClient.publishActuatorStatusEvent(RelayWaterPump, commandStr.c_str(), true);
+          }
       }
 
       // Debug Output

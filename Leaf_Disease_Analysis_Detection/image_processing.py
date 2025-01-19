@@ -16,15 +16,21 @@ class LeafDiseaseDetector:
         self.model = load_model(model_path)
         self.db_config = db_config
         self.class_labels = {0: "Healthy", 1: "Powdery", 2: "Rust"}
-        self.arduino = serial.Serial(arduino_port, 115200, timeout=2)
+        self.arduino = serial.Serial(arduino_port, 115200, timeout=.1)
         
     def send_status_to_arduino(self, status):
         if self.arduino.is_open:
             try:
-                self.arduino.write(f"{status}\n".encode())  # Send the status to Arduino
+                if status == "Healthy":
+                    self.arduino.write(bytes(0, 'utf-8'))  # Move the servo to position 0
+                elif status == "Powdery" or status == "Rust":
+                    self.arduino.write(bytes(90, 'utf-8'))
                 print(f"Sent to Arduino: {status}")
             except Exception as e:
                 print(f"Error sending data to Arduino: {e}")
+        else:
+            print("Arduino is not connected!")
+
 
     def capture_image(self, image_path='snapshot.jpg'):
         cap = cv2.VideoCapture(0)  # Open the default camera
@@ -82,7 +88,9 @@ def main():
         'dbname': "postgres"
     }
 
-    model_path = 'leaf_disease_detection_model.h5'
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(script_dir, 'leaf_disease_detection_model.h5')
+    image_path = os.path.join(script_dir, 'snapshot.jpg')
     arduino_port = "COM3"
     detector = LeafDiseaseDetector(model_path, db_config, arduino_port)
 
@@ -91,7 +99,7 @@ def main():
         test_img_array = detector.preprocess_image('snapshot.jpg')
         predicted_class = detector.predict(test_img_array)
         print(f'Predicted class: {predicted_class}')
-        detector.insert_image_to_db('snapshot.jpg', predicted_class)
+        detector.insert_image_to_db(image_path, predicted_class)
         
         # Send status to Arduino to control the servo
         detector.send_status_to_arduino(predicted_class)
