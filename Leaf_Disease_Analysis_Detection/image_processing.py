@@ -103,7 +103,7 @@ def main():
         
         # Send status to Arduino to control the servo
         detector.send_status_to_arduino(predicted_class)
-    
+        print(predicted_class)
     print("Waiting for 30 minutes before the next capture...")
     #time.sleep(5)  # Sleep for 30 minutes (1800 seconds)
 
