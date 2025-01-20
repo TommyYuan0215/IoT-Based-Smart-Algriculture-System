@@ -32,7 +32,7 @@ class LeafDiseaseDetector:
             print("Arduino is not connected!")
 
 
-    def capture_image(self, image_path='snapshot.jpg'):
+    def capture_image(self, image_path):
         cap = cv2.VideoCapture(0)  # Open the default camera
         if not cap.isOpened():
             print("Error: Could not open camera.")
@@ -95,7 +95,7 @@ def main():
     detector = LeafDiseaseDetector(model_path, db_config, arduino_port)
 
 #while True:  # Infinite loop to keep taking pictures every 30 minutes
-    if detector.capture_image():
+    if detector.capture_image(image_path):
         test_img_array = detector.preprocess_image('snapshot.jpg')
         predicted_class = detector.predict(test_img_array)
         print(f'Predicted class: {predicted_class}')
