@@ -168,11 +168,12 @@ void loop() {
 
   // Handle Python's servo control commands
   if (Serial.available() > 0) {
-      int angle = Serial.read();  // Read the incoming byte
-      angle = constrain(angle, 0, 90);
-      
-      // Move servo
-      servoMotor.write(angle);
+      int angle = Serial.parseInt();  // Read the incoming byte
+
+      if (angle >= 0 && angle <= 180) {  // Validate angle range
+        servoMotor.write(angle);
+        delay(1000);
+      }
       
       // Publish servo state to MQTT
       String commandStr = "{\"Servo\":" + String(angle) + "}";

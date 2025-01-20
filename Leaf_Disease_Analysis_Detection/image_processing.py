@@ -16,21 +16,31 @@ class LeafDiseaseDetector:
         self.model = load_model(model_path)
         self.db_config = db_config
         self.class_labels = {0: "Healthy", 1: "Powdery", 2: "Rust"}
-        self.arduino = serial.Serial(arduino_port, 115200, timeout=.1)
-        
+        self.arduino = serial.Serial(arduino_port, 115200, timeout=1)
+
+    def move_servo(self, angle):
+        if 0 <= angle <= 180:  # Ensure angle is valid
+            command = f"{angle}\n"  # Add newline for Arduino parsing
+            self.arduino.write(command.encode())  # Send angle to Arduino
+            time.sleep(.1)  # Allow time for the servo to move
+        else:
+            print("Angle out of range! Must be between 0 and 180.")
+ 
     def send_status_to_arduino(self, status):
         if self.arduino.is_open:
             try:
                 if status == "Healthy":
-                    self.arduino.write(bytes(0, 'utf-8'))  # Move the servo to position 0
+                    self.move_servo(90)  # Move the servo to position 0
                 elif status == "Powdery" or status == "Rust":
-                    self.arduino.write(bytes(90, 'utf-8'))
+                    self.move_servo(0)
+                    time.sleep(2)
                 print(f"Sent to Arduino: {status}")
             except Exception as e:
                 print(f"Error sending data to Arduino: {e}")
         else:
             print("Arduino is not connected!")
 
+    
 
     def capture_image(self, image_path):
         cap = cv2.VideoCapture(0)  # Open the default camera
@@ -91,12 +101,12 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     model_path = os.path.join(script_dir, 'leaf_disease_detection_model.h5')
     image_path = os.path.join(script_dir, 'snapshot.jpg')
-    arduino_port = "COM3"
+    arduino_port = "COM5"
     detector = LeafDiseaseDetector(model_path, db_config, arduino_port)
 
 #while True:  # Infinite loop to keep taking pictures every 30 minutes
     if detector.capture_image(image_path):
-        test_img_array = detector.preprocess_image('snapshot.jpg')
+        test_img_array = detector.preprocess_image(image_path)
         predicted_class = detector.predict(test_img_array)
         print(f'Predicted class: {predicted_class}')
         detector.insert_image_to_db(image_path, predicted_class)
