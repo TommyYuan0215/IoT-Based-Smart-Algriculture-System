@@ -35,6 +35,7 @@ bool redLEDState = false;
 bool greenLEDState = false;
 bool relayPumpState = false;
 int servoAngleState = 0;
+String status = "Healthy";
 
 //input sensor
 #define DHTTYPE DHT11
@@ -143,7 +144,7 @@ void setup() {
 
     // Initialize servo
     servoMotor.attach(servoPin); 
-    servoMotor.write(0);
+    servoMotor.write(90);
     
     // Set initial states
     digitalWrite(redLedPin, redLEDState);
@@ -168,25 +169,26 @@ void loop() {
 
   // Handle Python's servo control commands
   if (Serial.available() > 0) {
-    //   angle = Serial.parseInt();
-    //   String status = Serial.readStringUntil('\n');  // Read the status sent from Python
-    //   status.trim();  // Remove any trailing whitespace or newline characters
+      int angle = Serial.read();  // Read the incoming byte
 
-    //   if (status == "Healthy") {
-    //     servoMotor.write(0);  // Servo at 0 degrees
-    //   } else if (status == "Powdery" || status == "Rust") {
-    //     servoMotor.write(90);  // Servo at 90 degrees
-    //     delay(5000);        // Hold position for 5 seconds (adjust as needed)
-    //     servoMotor.write(0);   // Reset to default position
-    //   }
-    //   Serial.println("Condition received: " + status);  // Debug print
+      status = Serial.readStringUntil('\n');  // Read the status sent from Python
+      status.trim();  // Remove any trailing whitespace or newline characters
+
+      if (status == "Healthy") {
+        servoMotor.write(0);  // Servo at 0 degrees
+      } else if (status == "Powdery" || status == "Rust") {
+        servoMotor.write(90);  // Servo at 90 degrees
+        delay(5000);        // Hold position for 5 seconds (adjust as needed)
+        servoMotor.write(0);   // Reset to default position
+      }
+      Serial.println("Condition received: " + status);  // Debug print
       
-    //   // Publish servo state to MQTT
-    //   String commandStr = "{\"Servo\":" + String(angle) + "}";
-    //   voneClient.publishActuatorStatusEvent(Servo, commandStr.c_str(), true);
+      // Publish servo state to MQTT
+      String commandStr = "{\"Servo\":" + String(angle) + "}";
+      voneClient.publishActuatorStatusEvent(Servo, commandStr.c_str(), true);
       
-    //   // Send confirmation back to Python
-    //   Serial.println(angle);
+      // Send confirmation back to Python
+      Serial.println(angle);
   }
 
   unsigned long cur = millis();

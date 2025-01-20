@@ -17,7 +17,7 @@ class LeafDiseaseDetector:
         self.db_config = db_config
         self.class_labels = {0: "Healthy", 1: "Powdery", 2: "Rust"}
         self.arduino = serial.Serial(arduino_port, 115200, timeout=1)
-
+        
  
     def send_status_to_arduino(self, status):
         if self.arduino.is_open:
