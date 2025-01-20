@@ -1,8 +1,6 @@
 #include "VOneMqttClient.h"
 #include "DHT.h"
 #include <ESP32Servo.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
 
 // Moisture predefined value
 int MinMoistureValue = 4095;
@@ -37,7 +35,6 @@ bool redLEDState = false;
 bool greenLEDState = false;
 bool relayPumpState = false;
 int servoAngleState = 0;
-String status = "Healthy";
 
 //input sensor
 #define DHTTYPE DHT11
@@ -48,14 +45,6 @@ VOneMqttClient voneClient;
 
 //last message time
 unsigned long lastMsgTime = 0;
-
-// WiFi credentials
-const char* ssid = "Jun Lin's HONOR 70";
-const char* password = "020519TommyYuan";
-
-// Supabase API URL and Anon Key
-const char* supabaseUrl = "https://zsniufaudrldmnecbupq.supabase.co/rest/v1/images?select=result&order=id.desc&limit=1";
-const char* supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpzbml1ZmF1ZHJsZG1uZWNidXBxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzY4MjkwNDMsImV4cCI6MjA1MjQwNTA0M30.YIXUSqj91pPZwadqATsr5zrzylyc9pSqPrBydnMiV2c";
 
 // Helper function to publish actuator state
 void publishActuatorState(const char* deviceId, bool state) {
@@ -154,21 +143,12 @@ void setup() {
 
     // Initialize servo
     servoMotor.attach(servoPin); 
-    servoMotor.write(90);
+    servoMotor.write(0);
     
     // Set initial states
     digitalWrite(redLedPin, redLEDState);
     digitalWrite(greenLedPin, greenLEDState);
     digitalWrite(relayPin, relayPumpState);
-
-    // Connect to Supabase
-    WiFi.begin(ssid, password);
-
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println("WiFi connected");
 }
 
 void loop() {
@@ -188,50 +168,17 @@ void loop() {
 
   // Handle Python's servo control commands
   if (Serial.available() > 0) {
-      int angle = Serial.read();  // Read the incoming byte
+      int angle = Serial.parseInt();  // Read the incoming byte
 
-      // Fetch data from the database to update the status variable
-      if (WiFi.status() == WL_CONNECTED) {
-          HTTPClient http;
-          http.begin(supabaseUrl); // Specify the URL
-
-          // Set the request headers
-          http.addHeader("Authorization", String("Bearer ") + supabaseKey);
-          http.addHeader("Content-Type", "application/json");
-          http.addHeader("Accept", "application/json");
-
-          int httpResponseCode = http.GET(); // Make the request
-
-          if (httpResponseCode > 0) {
-              String payload = http.getString(); // Get the response payload
-              Serial.println("Response: " + payload); // Print the response
-              
-              // Parse the JSON response to extract the status
-              JSONVar responseObject = JSON.parse(payload);
-              if (JSON.typeof(responseObject) == "undefined") {
-                  Serial.println("Parsing input failed!");
-              } else {
-                  // Assuming the response contains an array and we want the first item's 'result' field
-                  if (responseObject.length() > 0) {
-                      status = (const char*)responseObject[0]["result"];
-                  }
-              }
-          } else {
-              Serial.println("Error on HTTP request: " + String(httpResponseCode));
-          }
-
-          http.end(); // Free resources
-      }
-
-      // Now use the updated status variable
+      String status = Serial.readStringUntil('\n');  // Read the status sent from Python
       status.trim();  // Remove any trailing whitespace or newline characters
 
       if (status == "Healthy") {
-          servoMotor.write(0);  // Servo at 0 degrees
+        servoMotor.write(0);  // Servo at 0 degrees
       } else if (status == "Powdery" || status == "Rust") {
-          servoMotor.write(90);  // Servo at 90 degrees
-          delay(5000);        // Hold position for 5 seconds (adjust as needed)
-          servoMotor.write(0);   // Reset to default position
+        servoMotor.write(90);  // Servo at 90 degrees
+        delay(5000);        // Hold position for 5 seconds (adjust as needed)
+        servoMotor.write(0);   // Reset to default position
       }
       Serial.println("Condition received: " + status);  // Debug print
       
@@ -334,27 +281,4 @@ void loop() {
       Serial.print("Pump: "); Serial.println(relayPumpState ? "ON" : "OFF");
       Serial.println("-------------------\n");
   }
-
-  if (WiFi.status() == WL_CONNECTED) {
-      HTTPClient http;
-      http.begin(supabaseUrl); // Specify the URL
-
-      // Set the request headers
-      http.addHeader("Authorization", String("Bearer ") + supabaseKey);
-      http.addHeader("Content-Type", "application/json");
-      http.addHeader("Accept", "application/json");
-
-      int httpResponseCode = http.GET(); // Make the request
-
-      if (httpResponseCode > 0) {
-          String payload = http.getString(); // Get the response payload
-          Serial.println("Response: " + payload); // Print the response
-      } else {
-          Serial.println("Error on HTTP request: " + String(httpResponseCode));
-      }
-
-      http.end(); // Free resources
-  }
-
-  delay(10000); // Wait for 10 seconds before the next request
 }
