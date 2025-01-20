@@ -12,21 +12,19 @@ import time
 import serial
 
 class LeafDiseaseDetector:
-    def __init__(self, model_path, db_config, arduino_port):
+    def __init__(self, model_path, db_config):
         self.model = load_model(model_path)
         self.db_config = db_config
         self.class_labels = {0: "Healthy", 1: "Powdery", 2: "Rust"}
-        self.arduino = serial.Serial(arduino_port, 115200, timeout=1)
+        self.arduino = serial.Serial('COM3', 9600)
         
  
     def send_status_to_arduino(self, status):
         if self.arduino.is_open:
-            try:
-                command = f"{status}\n"  # Format the status with a newline
-                self.arduino.write(command.encode())  # Send the status to Arduino
-                print(f"Sent to Arduino: {status}")
-            except Exception as e:
-                print(f"Error sending data to Arduino: {e}")
+            command = "H" if status == "Healthy" else "D"  # H for Healthy, D for Disease
+            self.arduino.write(command.encode('utf-8'))
+            print(f"Sent to Arduino: {command} for {status}")
+            time.sleep(0.2)  # Increased delay to give ESP32 more time
         else:
             print("Arduino is not connected!")
 
@@ -91,8 +89,7 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     model_path = os.path.join(script_dir, 'leaf_disease_detection_model.h5')
     image_path = os.path.join(script_dir, 'snapshot.jpg')
-    arduino_port = "COM5"
-    detector = LeafDiseaseDetector(model_path, db_config, arduino_port)
+    detector = LeafDiseaseDetector(model_path, db_config)
 
 #while True:  # Infinite loop to keep taking pictures every 30 minutes
     if detector.capture_image(image_path):
@@ -103,7 +100,7 @@ def main():
         
         # Send status to Arduino to control the servo
         detector.send_status_to_arduino(predicted_class)
-        print(predicted_class)
+        
     print("Waiting for 30 minutes before the next capture...")
     #time.sleep(5)  # Sleep for 30 minutes (1800 seconds)
 
