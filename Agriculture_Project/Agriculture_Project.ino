@@ -170,10 +170,17 @@ void loop() {
   if (Serial.available() > 0) {
       int angle = Serial.parseInt();  // Read the incoming byte
 
-      if (angle >= 0 && angle <= 180) {  // Validate angle range
-        servoMotor.write(angle);
-        delay(1000);
+      String status = Serial.readStringUntil('\n');  // Read the status sent from Python
+      status.trim();  // Remove any trailing whitespace or newline characters
+
+      if (status == "Healthy") {
+        servoMotor.write(0);  // Servo at 0 degrees
+      } else if (status == "Powdery" || status == "Rust") {
+        servoMotor.write(90);  // Servo at 90 degrees
+        delay(5000);        // Hold position for 5 seconds (adjust as needed)
+        servoMotor.write(0);   // Reset to default position
       }
+      Serial.println("Condition received: " + status);  // Debug print
       
       // Publish servo state to MQTT
       String commandStr = "{\"Servo\":" + String(angle) + "}";

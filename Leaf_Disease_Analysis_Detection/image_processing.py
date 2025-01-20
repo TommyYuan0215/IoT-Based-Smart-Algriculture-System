@@ -18,22 +18,12 @@ class LeafDiseaseDetector:
         self.class_labels = {0: "Healthy", 1: "Powdery", 2: "Rust"}
         self.arduino = serial.Serial(arduino_port, 115200, timeout=1)
 
-    def move_servo(self, angle):
-        if 0 <= angle <= 180:  # Ensure angle is valid
-            command = f"{angle}\n"  # Add newline for Arduino parsing
-            self.arduino.write(command.encode())  # Send angle to Arduino
-            time.sleep(.1)  # Allow time for the servo to move
-        else:
-            print("Angle out of range! Must be between 0 and 180.")
  
     def send_status_to_arduino(self, status):
         if self.arduino.is_open:
             try:
-                if status == "Healthy":
-                    self.move_servo(90)  # Move the servo to position 0
-                elif status == "Powdery" or status == "Rust":
-                    self.move_servo(0)
-                    time.sleep(2)
+                command = f"{status}\n"  # Format the status with a newline
+                self.arduino.write(command.encode())  # Send the status to Arduino
                 print(f"Sent to Arduino: {status}")
             except Exception as e:
                 print(f"Error sending data to Arduino: {e}")
