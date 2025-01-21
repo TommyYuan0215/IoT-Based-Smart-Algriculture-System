@@ -73,6 +73,29 @@ class LeafDiseaseDetector:
             cursor.close()
             connection.close()
             print("Connection closed.")
+            
+    def run_monitoring_loop(self, image_path, interval_hours=12):
+        print(f"Starting continuous monitoring every {interval_hours} hours...")
+        try:
+            while True:
+                print("\n--- Starting new monitoring cycle ---")
+                if self.capture_image(image_path):
+                    test_img_array = self.preprocess_image(image_path)
+                    predicted_class = self.predict(test_img_array)
+                    print(f'Predicted class: {predicted_class}')
+                    self.insert_image_to_db(image_path, predicted_class)
+                    self.send_status_to_arduino(predicted_class)
+                
+                print(f"Waiting for {interval_hours} hours before next capture...")
+                time.sleep(interval_hours * 3600)  # Convert hours to seconds (1 hour = 3600 seconds)
+        except KeyboardInterrupt:
+            print("\nMonitoring stopped by user")
+            if self.arduino.is_open:
+                self.arduino.close()
+        except Exception as e:
+            print(f"\nAn error occurred: {e}")
+            if self.arduino.is_open:
+                self.arduino.close()
 
 def main():
     load_dotenv()  # Load environment variables from .env
@@ -90,19 +113,9 @@ def main():
     model_path = os.path.join(script_dir, 'leaf_disease_detection_model.h5')
     image_path = os.path.join(script_dir, 'snapshot.jpg')
     detector = LeafDiseaseDetector(model_path, db_config)
-
-#while True:  # Infinite loop to keep taking pictures every 30 minutes
-    if detector.capture_image(image_path):
-        test_img_array = detector.preprocess_image(image_path)
-        predicted_class = detector.predict(test_img_array)
-        print(f'Predicted class: {predicted_class}')
-        detector.insert_image_to_db(image_path, predicted_class)
-        
-        # Send status to Arduino to control the servo
-        detector.send_status_to_arduino(predicted_class)
-        
-    print("Waiting for 30 minutes before the next capture...")
-    #time.sleep(5)  # Sleep for 30 minutes (1800 seconds)
+    
+    # Start the monitoring loop with 30-minute interval
+    detector.run_monitoring_loop(image_path, interval_minutes=30)
 
 if __name__ == "__main__":
     main()
