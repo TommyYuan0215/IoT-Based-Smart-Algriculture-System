@@ -149,17 +149,23 @@ void loop() {
     // Handle Python's servo control commands first, with watchdog feed
     if (Serial.available() > 0) {
         char leafResult = Serial.read();  // Read single character
+        int angle;
         
         switch(leafResult) {
             case 'H':  // Healthy
-                servoMotor.write(90);
-                delay(15); 
-                break;
+              angle = 90;
+              servoMotor.write(angle);
+              delay(15); 
+              break;
             case 'D':  // Disease (Powdery or Rust)
-                servoMotor.write(0);
-                delay(15);  
-                break;
+              angle = 0;
+              servoMotor.write(angle);
+              delay(15);  
+              break;
         }
+
+        String commandStr = "{\"Servo\":" + String(angle) + "}";
+        voneClient.publishActuatorStatusEvent(Servo, commandStr.c_str(), true);
     }
 
     if (!voneClient.connected()) {
@@ -199,7 +205,7 @@ void loop() {
         Moisture = map(sensorValue, MinMoistureValue, MaxMoistureValue, MinMoisture, MaxMoisture);
         voneClient.publishTelemetryData(MoistureSensor, "Soil moisture", Moisture);
 
-        if ((raining == 0) && (Moisture < 20) && (t > 15 && t < 35) && (h < 80)) {
+        if ((raining == 0) && (Moisture < 20)) {
             // Update LED states
             bool newRedLEDState = true;
             bool newGreenLEDState = false;
