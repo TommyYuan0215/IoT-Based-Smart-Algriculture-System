@@ -205,7 +205,7 @@ void loop() {
         Moisture = map(sensorValue, MinMoistureValue, MaxMoistureValue, MinMoisture, MaxMoisture);
         voneClient.publishTelemetryData(MoistureSensor, "Soil moisture", Moisture);
 
-        if ((raining == 0) && (Moisture < 20)) {
+        if ((raining == 0) && (Moisture < 20) && (15 < t < 35) && (h < 80)) {
             // Update LED states
             bool newRedLEDState = true;
             bool newGreenLEDState = false;
