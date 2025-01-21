@@ -13,11 +13,14 @@ int Moisture = 0;
 // Servo predefined value
 Servo servoMotor;
 
+// Wi-FI and MQTT setup
 const char* WIFI_SSID = "jj"; // Your WiFi SSID
 const char* WIFI_PASSWORD = "77292070"; // Your WiFi password
-const char* MQTT_SERVER = "34.56.86.175"; // Your VM instance public IP address
+const char* MQTT_SERVER = "34.29.77.235"; // Your VM instance public IP address
 const char* MQTT_TOPIC = "iot"; // MQTT topic for subscription
 const int MQTT_PORT = 1883; // Non-TLS communication port
+
+// MQTT client
 char buffer[128] = "";
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -40,8 +43,6 @@ int servoAngleState = 0;
 //input sensor
 #define DHTTYPE DHT11
 DHT dht(dht11Pin, DHTTYPE);
-
-
 
 //last message time
 unsigned long lastMsgTime = 0;
@@ -71,9 +72,10 @@ void setup() {
     Serial.begin(115200);
     Serial.setTimeout(1);
     
-    // Setup for V-One connection
+    // Setup for GCP connection
     setup_wifi();
     client.setServer(MQTT_SERVER, MQTT_PORT);
+
     // Sensor Initialization
     dht.begin();
     pinMode(rainPin, INPUT);
@@ -150,7 +152,7 @@ void loop() {
       int t = dht.readTemperature();
 
       // Initialize JSON payloadObject for DHT11 Sensor data 
-      sprintf(buffer, "Temperature: %d degree Celsius", t);
+      sprintf(buffer, "Temperature: %d", t);
       Serial.println(buffer);
       client.publish(MQTT_TOPIC, buffer);
 
@@ -226,8 +228,7 @@ void loop() {
           }
       }
 
-      // // Debug Output
-      
+      // Debug Output
       Serial.println("\n--- Current States ---");
       Serial.print("Humidity: "); Serial.println(h);
       Serial.print("Temperature: "); Serial.println(t);
