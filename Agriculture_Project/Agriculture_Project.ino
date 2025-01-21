@@ -46,12 +46,6 @@ VOneMqttClient voneClient;
 //last message time
 unsigned long lastMsgTime = 0;
 
-// Helper function to publish actuator state
-void publishActuatorState(const char* deviceId, bool state) {
-    String commandStr = "{\"state\":" + String(state ? "true" : "false") + "}";
-    voneClient.publishActuatorStatusEvent(deviceId, commandStr.c_str(), state);
-}
-
 void setup_wifi() {
     delay(10);
     Serial.println();
@@ -123,8 +117,12 @@ void triggerActuator_callback(const char* actuatorDeviceId, const char* actuator
 
 void setup() {
     // Initialize serial communication with a higher baud rate
-    Serial.begin(115200);
-    Serial.setTimeout(1);
+    Serial.begin(9600);
+    delay(100);  // Give serial time to start
+    
+    // Initialize servo
+    servoMotor.setPeriodHertz(50);  // Standard 50hz servo
+    servoMotor.attach(servoPin, 500, 2400);  // Attach with specific pulse widths
     
     // Setup for V-One connection
     setup_wifi();
@@ -140,10 +138,6 @@ void setup() {
     pinMode(redLedPin, OUTPUT);
     pinMode(greenLedPin, OUTPUT);
     pinMode(relayPin, OUTPUT);
-
-    // Initialize servo
-    servoMotor.attach(servoPin); 
-    servoMotor.write(0);
     
     // Set initial states
     digitalWrite(redLedPin, redLEDState);
@@ -152,133 +146,131 @@ void setup() {
 }
 
 void loop() {
-  if (!voneClient.connected()) {
-      Serial.println("Lost connection - attempting to reconnect...");
-      voneClient.reconnect();
-      
-      // Publish all device statuses at once
-      const char* devices[] = {DHT11Sensor, RainSensor, MoistureSensor, 
-                              RedLED, GreenLED, RelayWaterPump, Servo};
-      for(const char* device : devices) {
-          voneClient.publishDeviceStatusEvent(device, true);
-      }
-  }
-  
-  voneClient.loop();
+    // Handle Python's servo control commands first, with watchdog feed
+    if (Serial.available() > 0) {
+        char leafResult = Serial.read();  // Read single character
+        int angle;
+        
+        switch(leafResult) {
+            case 'H':  // Healthy
+              angle = 90;
+              servoMotor.write(angle);
+              delay(15); 
+              break;
+            case 'D':  // Disease (Powdery or Rust)
+              angle = 0;
+              servoMotor.write(angle);
+              delay(15);  
+              break;
+        }
 
-  // Handle Python's servo control commands
-  if (Serial.available() > 0) {
-      int angle = Serial.parseInt();  // Read the incoming byte
+        String commandStr = "{\"Servo\":" + String(angle) + "}";
+        voneClient.publishActuatorStatusEvent(Servo, commandStr.c_str(), true);
+    }
 
-      String status = Serial.readStringUntil('\n');  // Read the status sent from Python
-      status.trim();  // Remove any trailing whitespace or newline characters
+    if (!voneClient.connected()) {
+        Serial.println("Lost connection - attempting to reconnect...");
+        voneClient.reconnect();
+        
+        // Publish all device statuses at once
+        const char* devices[] = {DHT11Sensor, RainSensor, MoistureSensor, 
+                                RedLED, GreenLED, RelayWaterPump, Servo};
+        for(const char* device : devices) {
+            voneClient.publishDeviceStatusEvent(device, true);
+        }
+    }
+    
+    voneClient.loop();
 
-      if (status == "Healthy") {
-        servoMotor.write(0);  // Servo at 0 degrees
-      } else if (status == "Powdery" || status == "Rust") {
-        servoMotor.write(90);  // Servo at 90 degrees
-        delay(5000);        // Hold position for 5 seconds (adjust as needed)
-        servoMotor.write(0);   // Reset to default position
-      }
-      Serial.println("Condition received: " + status);  // Debug print
-      
-      // Publish servo state to MQTT
-      String commandStr = "{\"Servo\":" + String(angle) + "}";
-      voneClient.publishActuatorStatusEvent(Servo, commandStr.c_str(), true);
-      
-      // Send confirmation back to Python
-      Serial.println(angle);
-  }
+    unsigned long cur = millis();
+    if (cur - lastMsgTime > 2000) { // Using 2000ms interval
+        lastMsgTime = cur;
 
-  unsigned long cur = millis();
-  if (cur - lastMsgTime > 2000) { // Using 2000ms interval
-      lastMsgTime = cur;
+        // DHT11 Data 
+        float h = dht.readHumidity();
+        int t = dht.readTemperature();
 
-      // DHT11 Data 
-      float h = dht.readHumidity();
-      int t = dht.readTemperature();
+        // Initialize JSON payloadObject for DHT11 Sensor data 
+        JSONVar payloadObject;
+        payloadObject["Humidity"] = h;
+        payloadObject["Temperature"] = t;
+        voneClient.publishTelemetryData(DHT11Sensor, payloadObject);
 
-      // Initialize JSON payloadObject for DHT11 Sensor data 
-      JSONVar payloadObject;
-      payloadObject["Humidity"] = h;
-      payloadObject["Temperature"] = t;
-      voneClient.publishTelemetryData(DHT11Sensor, payloadObject);
+        // Rain sensor data
+        int raining = !digitalRead(rainPin);
+        voneClient.publishTelemetryData(RainSensor, "Raining", raining);
+        
+        // Moisture sensor data
+        int sensorValue = analogRead(moisturePin);
+        Moisture = map(sensorValue, MinMoistureValue, MaxMoistureValue, MinMoisture, MaxMoisture);
+        voneClient.publishTelemetryData(MoistureSensor, "Soil moisture", Moisture);
 
-      // Rain sensor data
-      int raining = !digitalRead(rainPin);
-      voneClient.publishTelemetryData(RainSensor, "Raining", raining);
-      
-      // Moisture sensor data
-      int sensorValue = analogRead(moisturePin);
-      Moisture = map(sensorValue, MinMoistureValue, MaxMoistureValue, MinMoisture, MaxMoisture);
-      voneClient.publishTelemetryData(MoistureSensor, "Soil moisture", Moisture);
+        if ((raining == 0) && (Moisture < 20) && (15 < t < 35) && (h < 80)) {
+            // Update LED states
+            bool newRedLEDState = true;
+            bool newGreenLEDState = false;
+            bool newRelayPumpState = true;
 
-      if ((raining == 0) && (Moisture < 20) && (t > 15 && t < 35) && (h < 80)) {
-          // Update LED states
-          bool newRedLEDState = true;
-          bool newGreenLEDState = false;
-          bool newRelayPumpState = true;
+            // Only update and publish if states have changed
+            if (redLEDState != newRedLEDState) {
+                redLEDState = newRedLEDState;
+                digitalWrite(redLedPin, redLEDState);
+                String commandStr = "{\"LED1\":" + String(redLEDState ? "true" : "false") + "}";
+                voneClient.publishActuatorStatusEvent(RedLED, commandStr.c_str(), true);
+            }
 
-          // Only update and publish if states have changed
-          if (redLEDState != newRedLEDState) {
-              redLEDState = newRedLEDState;
-              digitalWrite(redLedPin, redLEDState);
-              String commandStr = "{\"LED1\":" + String(redLEDState ? "true" : "false") + "}";
-              voneClient.publishActuatorStatusEvent(RedLED, commandStr.c_str(), true);
-          }
+            if (greenLEDState != newGreenLEDState) {
+                greenLEDState = newGreenLEDState;
+                digitalWrite(greenLedPin, greenLEDState);
+                String commandStr = "{\"LED2\":" + String(greenLEDState ? "true" : "false") + "}";
+                voneClient.publishActuatorStatusEvent(GreenLED, commandStr.c_str(), true);
+            }
 
-          if (greenLEDState != newGreenLEDState) {
-              greenLEDState = newGreenLEDState;
-              digitalWrite(greenLedPin, greenLEDState);
-              String commandStr = "{\"LED2\":" + String(greenLEDState ? "true" : "false") + "}";
-              voneClient.publishActuatorStatusEvent(GreenLED, commandStr.c_str(), true);
-          }
+            if (relayPumpState != newRelayPumpState) {
+                relayPumpState = newRelayPumpState;
+                digitalWrite(relayPin, relayPumpState);
+                String commandStr = "{\"Relay\":" + String(relayPumpState ? "true" : "false") + "}";
+                voneClient.publishActuatorStatusEvent(RelayWaterPump, commandStr.c_str(), true);
+            }
+            
+        } else {
+            // Update LED states for normal conditions
+            bool newRedLEDState = false;
+            bool newGreenLEDState = true;
+            bool newRelayPumpState = false;
 
-          if (relayPumpState != newRelayPumpState) {
-              relayPumpState = newRelayPumpState;
-              digitalWrite(relayPin, relayPumpState);
-              String commandStr = "{\"Relay\":" + String(relayPumpState ? "true" : "false") + "}";
-              voneClient.publishActuatorStatusEvent(RelayWaterPump, commandStr.c_str(), true);
-          }
-          
-      } else {
-          // Update LED states for normal conditions
-          bool newRedLEDState = false;
-          bool newGreenLEDState = true;
-          bool newRelayPumpState = false;
+            // Only update and publish if states have changed
+            if (redLEDState != newRedLEDState) {
+                redLEDState = newRedLEDState;
+                digitalWrite(redLedPin, redLEDState);
+                String commandStr = "{\"LED1\":" + String(redLEDState ? "true" : "false") + "}";
+                voneClient.publishActuatorStatusEvent(RedLED, commandStr.c_str(), true);
+            }
 
-          // Only update and publish if states have changed
-          if (redLEDState != newRedLEDState) {
-              redLEDState = newRedLEDState;
-              digitalWrite(redLedPin, redLEDState);
-              String commandStr = "{\"LED1\":" + String(redLEDState ? "true" : "false") + "}";
-              voneClient.publishActuatorStatusEvent(RedLED, commandStr.c_str(), true);
-          }
+            if (greenLEDState != newGreenLEDState) {
+                greenLEDState = newGreenLEDState;
+                digitalWrite(greenLedPin, greenLEDState);
+                String commandStr = "{\"LED2\":" + String(greenLEDState ? "true" : "false") + "}";
+                voneClient.publishActuatorStatusEvent(GreenLED, commandStr.c_str(), true);
+            }
 
-          if (greenLEDState != newGreenLEDState) {
-              greenLEDState = newGreenLEDState;
-              digitalWrite(greenLedPin, greenLEDState);
-              String commandStr = "{\"LED2\":" + String(greenLEDState ? "true" : "false") + "}";
-              voneClient.publishActuatorStatusEvent(GreenLED, commandStr.c_str(), true);
-          }
+            if (relayPumpState != newRelayPumpState) {
+                relayPumpState = newRelayPumpState;
+                digitalWrite(relayPin, relayPumpState);
+                String commandStr = "{\"Relay\":" + String(relayPumpState ? "true" : "false") + "}";
+                voneClient.publishActuatorStatusEvent(RelayWaterPump, commandStr.c_str(), true);
+            }
+        }
 
-          if (relayPumpState != newRelayPumpState) {
-              relayPumpState = newRelayPumpState;
-              digitalWrite(relayPin, relayPumpState);
-              String commandStr = "{\"Relay\":" + String(relayPumpState ? "true" : "false") + "}";
-              voneClient.publishActuatorStatusEvent(RelayWaterPump, commandStr.c_str(), true);
-          }
-      }
-
-      // Debug Output
-      Serial.println("\n--- Current States ---");
-      Serial.print("Humidity: "); Serial.println(h);
-      Serial.print("Temperature: "); Serial.println(t);
-      Serial.print("Raining: "); Serial.println(raining);
-      Serial.print("Moisture Level: "); Serial.println(Moisture);
-      Serial.print("Red LED: "); Serial.println(redLEDState ? "ON" : "OFF");
-      Serial.print("Green LED: "); Serial.println(greenLEDState ? "ON" : "OFF");
-      Serial.print("Pump: "); Serial.println(relayPumpState ? "ON" : "OFF");
-      Serial.println("-------------------\n");
-  }
+        // Debug Output
+        Serial.println("\n--- Current States ---");
+        Serial.print("Humidity: "); Serial.println(h);
+        Serial.print("Temperature: "); Serial.println(t);
+        Serial.print("Raining: "); Serial.println(raining);
+        Serial.print("Moisture Level: "); Serial.println(Moisture);
+        Serial.print("Red LED: "); Serial.println(redLEDState ? "ON" : "OFF");
+        Serial.print("Green LED: "); Serial.println(greenLEDState ? "ON" : "OFF");
+        Serial.print("Pump: "); Serial.println(relayPumpState ? "ON" : "OFF");
+        Serial.println("-------------------\n");
+    }
 }
