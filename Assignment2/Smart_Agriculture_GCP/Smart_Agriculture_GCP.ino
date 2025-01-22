@@ -14,9 +14,9 @@ int Moisture = 0;
 Servo servoMotor;
 
 // Wi-FI and MQTT setup
-const char* WIFI_SSID = "jj"; // Your WiFi SSID
-const char* WIFI_PASSWORD = "77292070"; // Your WiFi password
-const char* MQTT_SERVER = "34.29.77.235"; // Your VM instance public IP address
+const char* WIFI_SSID = "Jun Lin's HONOR 70"; // Your WiFi SSID
+const char* WIFI_PASSWORD = "020519TommyYuan"; // Your WiFi password
+const char* MQTT_SERVER = "34.68.255.77"; // Your VM instance public IP address
 const char* MQTT_TOPIC = "iot"; // MQTT topic for subscription
 const int MQTT_PORT = 1883; // Non-TLS communication port
 
@@ -153,6 +153,10 @@ void loop() {
 
       // Initialize JSON payloadObject for DHT11 Sensor data 
       sprintf(buffer, "Temperature: %d", t);
+      Serial.println(buffer);
+      client.publish(MQTT_TOPIC, buffer);
+
+      sprintf(buffer, "Temperature: %d", h);
       Serial.println(buffer);
       client.publish(MQTT_TOPIC, buffer);
 
