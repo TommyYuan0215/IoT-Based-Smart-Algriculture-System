@@ -121,26 +121,31 @@ void loop() {
 
   // Handle Python's servo control commands
   if (Serial.available() > 0) {
-      int angle = Serial.parseInt();  // Read the incoming byte
-
-      String status = Serial.readStringUntil('\n');  // Read the status sent from Python
-      status.trim();  // Remove any trailing whitespace or newline characters
-
-      if (status == "Healthy") {
-        servoMotor.write(0);  // Servo at 0 degrees
-      } else if (status == "Powdery" || status == "Rust") {
-        servoMotor.write(90);  // Servo at 90 degrees
-        delay(5000);        // Hold position for 5 seconds (adjust as needed)
-        servoMotor.write(0);   // Reset to default position
+      char leafResult = Serial.read();  // Read single character
+      int angle;
+      
+      switch(leafResult) {
+          case 'H':  // Healthy
+            angle = 90;
+            servoMotor.write(angle);
+            delay(15); 
+            break;
+          case 'D':  // Disease (Powdery or Rust)
+            angle = 0;
+            servoMotor.write(angle);
+            delay(15);  
+            break;
       }
-      Serial.println("Condition received: " + status);  // Debug print
       
-      // Publish servo state to MQTT
-      String commandStr = "{\"Servo\":" + String(angle) + "}";
-      client.publish(MQTT_TOPIC, commandStr.c_str());
+      // Create JSON object
+      JSONVar payloadObjectActuator;
+      payloadObjectActuator["leaf_status"] = leafResult;
+      payloadObjectActuator["servo_angle"] = angle;
+
+      // Convert JSON object to a string
+      String actuatorOutput = JSON.stringify(payloadObjectActuator);
       
-      // Send confirmation back to Python
-      Serial.println(angle);
+      client.publish(MQTT_TOPIC, actuatorOutput.c_str());
   }
 
   unsigned long cur = millis();
@@ -171,23 +176,17 @@ void loop() {
       digitalWrite(relayPin, relayPumpState);
 
       // Create JSON object
-      JSONVar payloadObject;
-      payloadObject["soil_moisture"] = Moisture;
-      payloadObject["temperature"] = temperature;
-      payloadObject["humidity"] = humidity;
-      payloadObject["rain_status"] = raining;
+      JSONVar payloadObjectSensor;
+      payloadObjectSensor["soil_moisture"] = Moisture;
+      payloadObjectSensor["temperature"] = temperature;
+      payloadObjectSensor["humidity"] = humidity;
+      payloadObjectSensor["rain_status"] = raining;
 
       // Convert JSON object to a string
-      String sensorOutput = JSON.stringify(payloadObject);
+      String sensorOutput = JSON.stringify(payloadObjectSensor);
 
       // Publish the JSON payload to MQTT
       client.publish(MQTT_TOPIC, sensorOutput.c_str());
-     
-
-      // Debug Output for JSON
-      Serial.println("\n--- JSON Payload Sent ---");
-      Serial.println(sensorOutput);
-      Serial.println("-------------------------\n");
 
       // Debug output for Serial
       Serial.println("\n--- Current States ---");

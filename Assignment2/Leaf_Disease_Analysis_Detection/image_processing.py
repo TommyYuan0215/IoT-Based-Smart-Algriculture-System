@@ -22,17 +22,6 @@ class LeafDiseaseDetector:
         self.mqtt_client.connect(self.mqtt_config['server'], self.mqtt_config['port'])  # Connect to MQTT server
         self.mqtt_client.loop_start()  # Start the MQTT loop
         
- 
-    def send_status_to_arduino(self, status):
-        if self.arduino.is_open:
-            command = "H" if status == "Healthy" else "D"  # H for Healthy, D for Disease
-            self.arduino.write(command.encode('utf-8'))
-            print(f"Sent to Arduino: {command} for {status}")
-            time.sleep(0.2)  # Increased delay to give ESP32 more time
-        else:
-            print("Arduino is not connected!")
-
-    
 
     def capture_image(self, image_path):
         cap = cv2.VideoCapture(0)  # Open the default camera
@@ -61,15 +50,24 @@ class LeafDiseaseDetector:
         predicted_class = np.argmax(predictions, axis=1)
         return self.class_labels.get(predicted_class[0], "Unknown")
 
-    def insert_result_to_mqtt(self, predicted_class):  # Updated method to publish only the result to MQTT
-        try:
-            message = {
-                'result': predicted_class  # Only send the prediction result
-            }
-            self.mqtt_client.publish(self.mqtt_config['topic'], str(message))  # Publish message to MQTT
-            print("Prediction result published to MQTT successfully.")
-        except Exception as e:
-            print(f"Failed to publish result to MQTT: {e}")
+    # def insert_result_to_mqtt(self, predicted_class):  # Updated method to publish only the result to MQTT
+    #     try:
+    #         message = {
+    #             'result': predicted_class  # Only send the prediction result
+    #         }
+    #         self.mqtt_client.publish(self.mqtt_config['topic'], str(message))  # Publish message to MQTT
+    #         print("Prediction result published to MQTT successfully.")
+    #     except Exception as e:
+    #         print(f"Failed to publish result to MQTT: {e}")
+    
+    def send_status_to_arduino(self, status):
+        if self.arduino.is_open:
+            command = "H" if status == "Healthy" else "D"  # H for Healthy, D for Disease
+            self.arduino.write(command.encode('utf-8'))
+            print(f"Sent to Arduino: {command} for {status}")
+            time.sleep(0.2)  # Increased delay to give ESP32 more time
+        else:
+            print("Arduino is not connected!")
 
     def run_monitoring_loop(self, image_path, interval_hours=12):
         print(f"Starting continuous monitoring every {interval_hours} hours...")
@@ -80,7 +78,6 @@ class LeafDiseaseDetector:
                     test_img_array = self.preprocess_image(image_path)
                     predicted_class = self.predict(test_img_array)
                     print(f'Predicted class: {predicted_class}')
-                    self.insert_result_to_mqtt(predicted_class)  # Update to use MQTT for result only
                     self.send_status_to_arduino(predicted_class)
                 
                 print(f"Waiting for {interval_hours} hours before next capture...")
@@ -89,7 +86,6 @@ class LeafDiseaseDetector:
             print("\nMonitoring stopped by user")
             if self.arduino.is_open:
                 self.arduino.close()
-            self.mqtt_client.loop_stop()  # Stop the MQTT loop
         except Exception as e:
             print(f"\nAn error occurred: {e}")
             if self.arduino.is_open:

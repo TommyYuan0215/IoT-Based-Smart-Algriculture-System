@@ -1,6 +1,7 @@
 import pymongo
 import paho.mqtt.client as mqtt
 from datetime import datetime, timezone
+import json
 
 # MongoDB configuration
 mongo_client = pymongo.MongoClient("mongodb://localhost:27017/")
@@ -22,14 +23,24 @@ def on_message(client, userdata, message):
     payload = message.payload.decode("utf-8")
     print(f"Received message: {payload}")
     
-    # Convert MQTT timestamp to datetime
-    timestamp = datetime.now(timezone.utc)
-    datetime_obj = timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-    
-    # Process the payload and insert into MongoDB with proper timestamp
-    document = {"timestamp": datetime_obj, "data": payload}
-    collection.insert_one(document)
-    print("Data ingested into MongoDB")
+    try:
+        # Parse the payload as JSON (it's a string, so it needs to be converted to a dictionary)
+        payload_data = json.loads(payload)
+        
+        # Convert MQTT timestamp to current UTC time
+        timestamp = datetime.now(timezone.utc)
+        datetime_obj = timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        
+        # Create the document to insert into MongoDB
+        document = {"timestamp": datetime_obj, "data": payload_data}
+        
+        # Insert the document into MongoDB
+        collection.insert_one(document)
+        print("Data ingested into MongoDB")
+    except json.JSONDecodeError:
+        print("Failed to decode payload to JSON")
+    except Exception as e:
+        print(f"Error: {e}")
 
 # Create a MQTT client instance
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
