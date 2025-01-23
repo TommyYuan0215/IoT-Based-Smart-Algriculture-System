@@ -61,18 +61,15 @@ class LeafDiseaseDetector:
         predicted_class = np.argmax(predictions, axis=1)
         return self.class_labels.get(predicted_class[0], "Unknown")
 
-    def insert_image_to_mqtt(self, image_path, predicted_class):  # New method to publish to MQTT
+    def insert_result_to_mqtt(self, predicted_class):  # Updated method to publish only the result to MQTT
         try:
-            with open(image_path, 'rb') as image_file:
-                image_data = image_file.read()
             message = {
-                'result': predicted_class,
-                'image': image_data.hex()  # Convert image data to hex for transmission
+                'result': predicted_class  # Only send the prediction result
             }
             self.mqtt_client.publish(self.mqtt_config['topic'], str(message))  # Publish message to MQTT
-            print("Image data published to MQTT successfully.")
+            print("Prediction result published to MQTT successfully.")
         except Exception as e:
-            print(f"Failed to publish image to MQTT: {e}")
+            print(f"Failed to publish result to MQTT: {e}")
 
     def run_monitoring_loop(self, image_path, interval_hours=12):
         print(f"Starting continuous monitoring every {interval_hours} hours...")
@@ -83,7 +80,7 @@ class LeafDiseaseDetector:
                     test_img_array = self.preprocess_image(image_path)
                     predicted_class = self.predict(test_img_array)
                     print(f'Predicted class: {predicted_class}')
-                    self.insert_image_to_mqtt(image_path, predicted_class)  # Update to use MQTT
+                    self.insert_result_to_mqtt(predicted_class)  # Update to use MQTT for result only
                     self.send_status_to_arduino(predicted_class)
                 
                 print(f"Waiting for {interval_hours} hours before next capture...")
