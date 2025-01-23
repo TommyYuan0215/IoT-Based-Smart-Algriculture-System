@@ -2,16 +2,7 @@
 #include <WiFi.h>
 #include "DHT.h"
 #include <ESP32Servo.h>
-
-// Moisture predefined value
-int MinMoistureValue = 4095;
-int MaxMoistureValue = 1800;
-int MinMoisture = 0;
-int MaxMoisture = 100;
-int Moisture = 0;
-
-// Servo predefined value
-Servo servoMotor;
+#include <Arduino_JSON.h>
 
 // Wi-FI and MQTT setup
 const char* WIFI_SSID = "Jun Lin's HONOR 70"; // Your WiFi SSID
@@ -21,7 +12,6 @@ const char* MQTT_TOPIC = "iot"; // MQTT topic for subscription
 const int MQTT_PORT = 1883; // Non-TLS communication port
 
 // MQTT client
-char buffer[128] = "";
 WiFiClient espClient;
 PubSubClient client(espClient);
 
@@ -39,6 +29,16 @@ bool redLEDState = false;
 bool greenLEDState = false;
 bool relayPumpState = false;
 int servoAngleState = 0;
+
+// Moisture predefined value
+int MinMoistureValue = 4095;
+int MaxMoistureValue = 1800;
+int MinMoisture = 0;
+int MaxMoisture = 100;
+int Moisture = 0;
+
+// Servo predefined value
+Servo servoMotor;
 
 //input sensor
 #define DHTTYPE DHT11
@@ -147,95 +147,52 @@ void loop() {
   if (cur - lastMsgTime > 2000) { // Using 2000ms interval
       lastMsgTime = cur;
 
-      // DHT11 Data 
-      float h = dht.readHumidity();
-      int t = dht.readTemperature();
-
-      // Initialize JSON payloadObject for DHT11 Sensor data 
-      sprintf(buffer, "Temperature: %d", t);
-      Serial.println(buffer);
-      client.publish(MQTT_TOPIC, buffer);
-
-      sprintf(buffer, "Temperature: %d", h);
-      Serial.println(buffer);
-      client.publish(MQTT_TOPIC, buffer);
-
-      // Rain sensor data
-      int raining = !digitalRead(rainPin);
-      sprintf(buffer, "Raining: %d", raining);
-      Serial.println(buffer);
-      client.publish(MQTT_TOPIC, buffer);
-      
-      // Moisture sensor data
+      // Gather sensor data
+      float humidity = dht.readHumidity();
+      int temperature = dht.readTemperature();
+      int raining = !digitalRead(rainPin); // 1 for rain detected
       int sensorValue = analogRead(moisturePin);
       Moisture = map(sensorValue, MinMoistureValue, MaxMoistureValue, MinMoisture, MaxMoisture);
-      sprintf(buffer, "Soil moisture: %d", Moisture);
-      Serial.println(buffer);
-      client.publish(MQTT_TOPIC, buffer);
 
-      if ((raining == 0) && (Moisture < 20) && (t > 15 && t < 35) && (h < 80)) {
-          // Update LED states
-          bool newRedLEDState = true;
-          bool newGreenLEDState = false;
-          bool newRelayPumpState = true;
-
-          // Only update and publish if states have changed
-          if (redLEDState != newRedLEDState) {
-              redLEDState = newRedLEDState;
-              digitalWrite(redLedPin, redLEDState);
-              String commandStr = "{\"LED1\":" + String(redLEDState ? "true" : "false") + "}";
-              client.publish(MQTT_TOPIC, commandStr.c_str());
-          }
-
-          if (greenLEDState != newGreenLEDState) {
-              greenLEDState = newGreenLEDState;
-              digitalWrite(greenLedPin, greenLEDState);
-              String commandStr = "{\"LED2\":" + String(greenLEDState ? "true" : "false") + "}";
-              client.publish(MQTT_TOPIC, commandStr.c_str());
-          }
-
-          if (relayPumpState != newRelayPumpState) {
-              relayPumpState = newRelayPumpState;
-              digitalWrite(relayPin, relayPumpState);
-              String commandStr = "{\"Relay\":" + String(relayPumpState ? "true" : "false") + "}";
-              client.publish(MQTT_TOPIC, commandStr.c_str());
-          }
-          
+      // Update actuator states based on condition
+      if ((raining == 0) && (Moisture < 20) && (temperature > 15 && temperature < 35) && (humidity < 80)) {
+        relayPumpState = true;   // Turn pump ON
+        redLEDState = false;      // Turn red LED OFF
+        greenLEDState = true;    // Turn green LED ON
       } else {
-          // Update LED states for normal conditions
-          bool newRedLEDState = false;
-          bool newGreenLEDState = true;
-          bool newRelayPumpState = false;
-
-          // Only update and publish if states have changed
-          if (redLEDState != newRedLEDState) {
-              redLEDState = newRedLEDState;
-              digitalWrite(redLedPin, redLEDState);
-              String commandStr = "{\"LED1\":" + String(redLEDState ? "true" : "false") + "}";
-              client.publish(MQTT_TOPIC, commandStr.c_str());
-          }
-
-          if (greenLEDState != newGreenLEDState) {
-              greenLEDState = newGreenLEDState;
-              digitalWrite(greenLedPin, greenLEDState);
-              String commandStr = "{\"LED2\":" + String(greenLEDState ? "true" : "false") + "}";
-              client.publish(MQTT_TOPIC, commandStr.c_str());
-              
-          }
-
-          if (relayPumpState != newRelayPumpState) {
-              relayPumpState = newRelayPumpState;
-              digitalWrite(relayPin, relayPumpState);
-              String commandStr = "{\"Relay\":" + String(relayPumpState ? "true" : "false") + "}";
-              client.publish(MQTT_TOPIC, commandStr.c_str());
-              
-          }
+        relayPumpState = false;   // Turn pump OFF
+        redLEDState = true; // Red LED ON if soil is dry
+        greenLEDState = false; // Green LED for optimal range
       }
 
-      // Debug Output
+      // Control actuators
+      digitalWrite(redLedPin, redLEDState);
+      digitalWrite(greenLedPin, greenLEDState);
+      digitalWrite(relayPin, relayPumpState);
+
+      // Create JSON object
+      JSONVar payloadObject;
+      payloadObject["soil_moisture"] = Moisture;
+      payloadObject["temperature"] = temperature;
+      payloadObject["humidity"] = humidity;
+      payloadObject["rain_status"] = raining;
+
+      // Convert JSON object to a string
+      String sensorOutput = JSON.stringify(payloadObject);
+
+      // Publish the JSON payload to MQTT
+      client.publish(MQTT_TOPIC, sensorOutput.c_str());
+     
+
+      // Debug Output for JSON
+      Serial.println("\n--- JSON Payload Sent ---");
+      Serial.println(sensorOutput);
+      Serial.println("-------------------------\n");
+
+      // Debug output for Serial
       Serial.println("\n--- Current States ---");
-      Serial.print("Humidity: "); Serial.println(h);
-      Serial.print("Temperature: "); Serial.println(t);
+      Serial.print("Humidity: "); Serial.println(humidity);
+      Serial.print("Temperature: "); Serial.println(temperature);
       Serial.print("Raining: "); Serial.println(raining);
       Serial.print("Moisture Level: "); Serial.println(Moisture);
       Serial.print("Red LED: "); Serial.println(redLEDState ? "ON" : "OFF");
