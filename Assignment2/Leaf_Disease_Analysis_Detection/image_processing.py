@@ -10,13 +10,17 @@ from PIL import Image
 from dotenv import load_dotenv
 import time
 import serial
+import paho.mqtt.client as mqtt  # Import MQTT library
 
 class LeafDiseaseDetector:
-    def __init__(self, model_path, db_config):
+    def __init__(self, model_path, mqtt_config):  # Change db_config to mqtt_config
         self.model = load_model(model_path)
-        self.db_config = db_config
+        self.mqtt_config = mqtt_config  # Store MQTT configuration
         self.class_labels = {0: "Healthy", 1: "Powdery", 2: "Rust"}
         self.arduino = serial.Serial('COM3', 9600)
+        self.mqtt_client = mqtt.Client()  # Initialize MQTT client
+        self.mqtt_client.connect(self.mqtt_config['server'], self.mqtt_config['port'])  # Connect to MQTT server
+        self.mqtt_client.loop_start()  # Start the MQTT loop
         
  
     def send_status_to_arduino(self, status):
@@ -57,23 +61,19 @@ class LeafDiseaseDetector:
         predicted_class = np.argmax(predictions, axis=1)
         return self.class_labels.get(predicted_class[0], "Unknown")
 
-    def insert_image_to_db(self, image_path, predicted_class):
+    def insert_image_to_mqtt(self, image_path, predicted_class):  # New method to publish to MQTT
         try:
-            connection = psycopg2.connect(**self.db_config)
-            cursor = connection.cursor()
             with open(image_path, 'rb') as image_file:
                 image_data = image_file.read()
-            insert_query = "INSERT INTO images (images, result) VALUES (%s, %s);"
-            cursor.execute(insert_query, (psycopg2.Binary(image_data), predicted_class))
-            connection.commit()
-            print("Image inserted successfully.")
+            message = {
+                'result': predicted_class,
+                'image': image_data.hex()  # Convert image data to hex for transmission
+            }
+            self.mqtt_client.publish(self.mqtt_config['topic'], str(message))  # Publish message to MQTT
+            print("Image data published to MQTT successfully.")
         except Exception as e:
-            print(f"Failed to insert image: {e}")
-        finally:
-            cursor.close()
-            connection.close()
-            print("Connection closed.")
-            
+            print(f"Failed to publish image to MQTT: {e}")
+
     def run_monitoring_loop(self, image_path, interval_hours=12):
         print(f"Starting continuous monitoring every {interval_hours} hours...")
         try:
@@ -83,36 +83,36 @@ class LeafDiseaseDetector:
                     test_img_array = self.preprocess_image(image_path)
                     predicted_class = self.predict(test_img_array)
                     print(f'Predicted class: {predicted_class}')
-                    self.insert_image_to_db(image_path, predicted_class)
+                    self.insert_image_to_mqtt(image_path, predicted_class)  # Update to use MQTT
                     self.send_status_to_arduino(predicted_class)
                 
                 print(f"Waiting for {interval_hours} hours before next capture...")
-                time.sleep(interval_hours * 3600)  # Convert hours to seconds (1 hour = 3600 seconds)
+                time.sleep(interval_hours * 3600)  # Convert hours to seconds
         except KeyboardInterrupt:
             print("\nMonitoring stopped by user")
             if self.arduino.is_open:
                 self.arduino.close()
+            self.mqtt_client.loop_stop()  # Stop the MQTT loop
         except Exception as e:
             print(f"\nAn error occurred: {e}")
             if self.arduino.is_open:
                 self.arduino.close()
+            self.mqtt_client.loop_stop()  # Stop the MQTT loop
 
 def main():
     load_dotenv()  # Load environment variables from .env
 
-    # Database configuration
-    db_config = {
-        'user': "postgres.zsniufaudrldmnecbupq",
-        'password': "CPC357_Project",
-        'host': "aws-0-ap-southeast-1.pooler.supabase.com",
-        'port': "6543",
-        'dbname': "postgres"
+    # MQTT configuration
+    mqtt_config = {
+        'server': "34.68.255.77",  # Your VM instance public IP address
+        'topic': "iot",  # MQTT topic for subscription
+        'port': 1883  # Non-TLS communication port
     }
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     model_path = os.path.join(script_dir, 'leaf_disease_detection_model.h5')
     image_path = os.path.join(script_dir, 'snapshot.jpg')
-    detector = LeafDiseaseDetector(model_path, db_config)
+    detector = LeafDiseaseDetector(model_path, mqtt_config)  # Pass mqtt_config instead of db_config
     
     # Start the monitoring loop with 30-minute interval
     detector.run_monitoring_loop(image_path)
